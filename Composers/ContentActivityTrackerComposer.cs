@@ -1,10 +1,12 @@
-using TestProject.Notifications;
-using TestProject.Services;
+using UmbracoContentActivity.Jobs;
+using UmbracoContentActivity.Notifications;
+using UmbracoContentActivity.Services;
 using Umbraco.Cms.Core.Composing;
 using Umbraco.Cms.Core.DependencyInjection;
 using Umbraco.Cms.Core.Notifications;
+using Umbraco.Cms.Infrastructure.BackgroundJobs;
 
-namespace TestProject.Composers
+namespace UmbracoContentActivity.Composers
 {
     /// <summary>
     /// Composer to register Content Activity Tracker services and notification handlers
@@ -13,11 +15,19 @@ namespace TestProject.Composers
     {
         public void Compose(IUmbracoBuilder builder)
         {
+            // Register configuration options for Content Activity Tracker
+            builder.Services.AddOptions<ContentActivityOptions>()
+                .Bind(builder.Config.GetSection(ContentActivityOptions.SectionName))
+                .ValidateDataAnnotations();
+
             // Register the broadcast service for SignalR
             builder.Services.AddSingleton<IActivityBroadcastService, ActivityBroadcastService>();
             
             // Register the activity service
             builder.Services.AddSingleton<IContentActivityService, ContentActivityService>();
+
+            // Register the recurring background job for cleanup
+            builder.Services.AddRecurringBackgroundJob<DeleteOldActivitiesJob>();
 
             // Register migration notification handler
             builder.AddNotificationHandler<UmbracoApplicationStartingNotification, Migrations.RunContentActivityTrackerMigration>();

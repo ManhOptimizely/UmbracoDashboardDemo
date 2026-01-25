@@ -1,11 +1,12 @@
 ﻿import { LitElement, html, css } from "@umbraco-cms/backoffice/external/lit";
 import { UmbElementMixin } from "@umbraco-cms/backoffice/element-api";
-
+import { UMB_AUTH_CONTEXT } from '@umbraco-cms/backoffice/auth';
 export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitElement) {
     static properties = {
         _loading: { type: Boolean, state: true },
         _activities: { type: Array, state: true },
         _filteredActivities: { type: Array, state: true },
+        _pagedActivities: { type: Array, state: true },
         _error: { type: String, state: true },
         _currentUser: { type: Object, state: true },
         _filterType: { type: String, state: true },
@@ -16,6 +17,8 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
         _lastRefresh: { type: String, state: true },
         _signalRConnected: { type: Boolean, state: true },
         _signalRConnection: { type: Object, state: true },
+        _currentPage: { type: Number, state: true },
+        _itemsPerPage: { type: Number, state: true },
     };
 
     constructor() {
@@ -23,6 +26,7 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
         this._loading = true;
         this._activities = [];
         this._filteredActivities = [];
+        this._pagedActivities = [];
         this._error = null;
         this._currentUser = null;
         this._filterType = 'all';
@@ -34,6 +38,26 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
         this._refreshInterval = null;
         this._signalRConnected = false;
         this._signalRConnection = null;
+        this._currentPage = 1;
+        this._itemsPerPage = 10;
+    }
+
+    async fetchData(host, endpoint) {
+        const authContext = await host.getContext(UMB_AUTH_CONTEXT);
+        const token = await authContext?.getLatestToken();
+
+        const response = await fetch(endpoint, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch data');
+        }
+
+        return response.json();
     }
 
     async connectedCallback() {
@@ -41,14 +65,10 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
         await this._loadSignalR();
         await this._initializeSignalR();
         this._loadActivityData();
-        this._checkAuthentication();
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        //if (this._refreshInterval) {
-        //    clearInterval(this._refreshInterval);
-        //}
         this._disconnectSignalR();
     }
 
@@ -90,11 +110,6 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                 this._handleRealtimeActivity(activity);
             });
 
-            // Handle incoming statistics updates
-            this._signalRConnection.on('ReceiveStatistics', (statistics) => {
-                this._handleRealtimeStatistics(statistics);
-            });
-
             // Connection state handlers
             this._signalRConnection.onreconnecting(() => {
                 this._signalRConnected = false;
@@ -134,40 +149,14 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
     }
 
     _handleRealtimeActivity(activity) {
-        // Add the new activity to the top of the list
-        const newActivity = {
-            id: activity.id || `${activity.contentKey}-${activity.action}-${Date.now()}`,
-            contentId: activity.contentKey,
-            contentName: activity.contentName || 'Untitled',
-            contentType: activity.contentTypeAlias || 'Document',
-            action: activity.action.toLowerCase(),
-            actionLabel: activity.action,
-            timestamp: activity.timestamp,
-            user: activity.userName || 'Unknown',
-            icon: activity.icon || '📝',
-            color: activity.color || 'var(--uui-color-default)',
-            isTrashed: activity.isTrashed || false,
-            culture: activity.culture,
-        };
-
-        // Add to activities array
-        this._activities = [newActivity, ...this._activities];
-        this._totalActivities = this._activities.length;
-
-        // Reapply filters
-        this._applyFilters();
+        // When new activity arrives via SignalR, reload data from server
+        this._loadActivityData();
 
         // Show notification
-        this._showToast(`New activity: ${newActivity.contentName} was ${newActivity.actionLabel.toLowerCase()}`);
-    }
-
-    _handleRealtimeStatistics(statistics) {
-        // Update statistics (if you want to show them separately)
-        console.log('Statistics updated:', statistics);
+        this._showToast(`New activity: ${activity.contentName || 'Content'} was ${activity.action.toLowerCase()}`);
     }
 
     _showToast(message) {
-        // Simple toast notification (you can enhance this)
         const toast = document.createElement('div');
         toast.className = 'activity-toast';
         toast.textContent = message;
@@ -192,37 +181,34 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
         }, 3000);
     }
 
-    async _checkAuthentication() {
-        try {
-            //const response = await fetch('/umbraco/management/api/v1/user/current');
-            //if (!response.ok) {
-            //    this._error = 'Authentication required. Please log in to the backoffice.';
-            //    return;
-            //}
-            //const data = await response.json();
-            this._currentUser = { email: "test1@gmail.com" } //data;
-        } catch (error) {
-            console.error('Authentication check failed:', error);
-            this._error = 'Unable to verify authentication. Please ensure you are logged in.';
-        }
-    }
-
     async _loadActivityData() {
         this._loading = true;
         this._error = null;
 
         try {
-            // Use the database API endpoint
-            const action = this._filterType !== 'all' ? `&action=${this._filterType}` : '';
-            const response = await fetch(`/umbraco/management/api/v1/content-activity?take=100${action}`);
-            
-            if (!response.ok) {
-                throw new Error('Failed to fetch activities');
+            // Build query parameters for server-side filtering and pagination
+            const params = new URLSearchParams({
+                take: this._itemsPerPage.toString(),
+                skip: ((this._currentPage - 1) * this._itemsPerPage).toString(),
+                sortOrder: this._sortOrder
+            });
+
+            // Add action filter if not 'all'
+            if (this._filterType !== 'all') {
+                params.append('action', this._filterType);
             }
 
-            const data = await response.json();
+            // Add search query if present
+            if (this._searchQuery.trim()) {
+                params.append('search', this._searchQuery.trim());
+            }
+            const data = await this.fetchData(this, `/umbraco/management/api/v1/content-activity?${params}`);
+            // Don't know why tryExecute doesn't work with backoffice authentication
+            //const { data, error } = await tryExecute(this, umbHttpClient.get({
+            //    url: `/umbraco/management/api/v1/content-activity?${params}`
+            //}));
             
-            // Map API response to dashboard format
+            // Map API response to dashboard
             this._activities = (data.items || []).map(item => ({
                 id: item.id,
                 contentId: item.contentKey,
@@ -232,33 +218,22 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                 actionLabel: item.action,
                 timestamp: item.timestamp,
                 user: item.userName || 'Unknown',
-                icon: this._getIconForAction(item.action),
                 color: this._getColorForAction(item.action),
                 isTrashed: item.isTrashed || false,
                 culture: item.culture,
             }));
 
-            this._totalActivities = data.total || this._activities.length;
-            this._applyFilters();
+            // Update pagination info from server response
+            this._totalActivities = data.total || 0;
+            this._filteredActivities = this._activities;
+            this._pagedActivities = this._activities;
             this._lastRefresh = new Date().toLocaleTimeString();
         } catch (error) {
             console.error('Error loading activity data:', error);
-            this._error = 'Failed to load content activities. Please try again.';
+            this._error = `Failed to load content activities: ${error.message}. Please try again.`;
         } finally {
             this._loading = false;
         }
-    }
-
-    _getIconForAction(action) {
-        const actionLower = action.toLowerCase();
-        const icons = {
-            'created': '📄',
-            'published': '✅',
-            'unpublished': '❌',
-            'saved': '💾',
-            'trashed': '🗑️'
-        };
-        return icons[actionLower] || '📝';
     }
 
     _getColorForAction(action) {
@@ -273,32 +248,59 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
         return colors[actionLower] || 'var(--uui-color-default)';
     }
 
-    _applyFilters() {
-        let filtered = [...this._activities];
+    _getTotalPages() {
+        return Math.ceil(this._totalActivities / this._itemsPerPage);
+    }
 
-        // Apply type filter
-        if (this._filterType !== 'all') {
-            filtered = filtered.filter(activity => activity.action === this._filterType);
+    _handlePageChange(newPage) {
+        const totalPages = this._getTotalPages();
+        if (newPage >= 1 && newPage <= totalPages) {
+            this._currentPage = newPage;
+            this._loadActivityData(); // Reload from server with new page
+            // Scroll to top of activity list
+            this.shadowRoot.querySelector('.activity-list')?.scrollIntoView({ behavior: 'smooth' });
         }
+    }
 
-        // Apply search filter
-        if (this._searchQuery.trim()) {
-            const query = this._searchQuery.toLowerCase();
-            filtered = filtered.filter(activity => 
-                activity.contentName.toLowerCase().includes(query) ||
-                activity.user.toLowerCase().includes(query) ||
-                activity.contentType.toLowerCase().includes(query)
-            );
+    _handleItemsPerPageChange(e) {
+        this._itemsPerPage = parseInt(e.target.value);
+        this._currentPage = 1;
+        this._loadActivityData(); // Reload from server with new page size
+    }
+
+    _getPageNumbers() {
+        const totalPages = this._getTotalPages();
+        const currentPage = this._currentPage;
+        const pageNumbers = [];
+        
+        // Always show first page
+        pageNumbers.push(1);
+        
+        // Calculate range around current page
+        let startPage = Math.max(2, currentPage - 2);
+        let endPage = Math.min(totalPages - 1, currentPage + 2);
+        
+        // Add ellipsis after first page if needed
+        if (startPage > 2) {
+            pageNumbers.push('...');
         }
-
-        // Apply sort order
-        if (this._sortOrder === 'oldest') {
-            filtered.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-        } else {
-            filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        // Add pages around current page
+        for (let i = startPage; i <= endPage; i++) {
+            pageNumbers.push(i);
         }
-
-        this._filteredActivities = filtered;
+        
+        // Add ellipsis before last page if needed
+        if (endPage < totalPages - 1) {
+            pageNumbers.push('...');
+        }
+        
+        // Always show last page (if more than 1 page)
+        if (totalPages > 1) {
+            pageNumbers.push(totalPages);
+        }
+        
+        return pageNumbers;
     }
 
     _handleRefresh() {
@@ -307,33 +309,31 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
 
     _handleFilterChange(e) {
         this._filterType = e.target.value;
-        this._applyFilters();
+        this._currentPage = 1; // Reset to first page
+        this._loadActivityData(); // Reload from server with new filter
     }
 
     _handleSearchInput(e) {
         this._searchQuery = e.target.value;
-        this._applyFilters();
+    }
+
+    _handleSearchSubmit(e) {
+        if (e) {
+            e.preventDefault();
+        }
+        this._currentPage = 1; // Reset to first page
+        this._loadActivityData(); // Reload from server with search query
+    }
+
+    _handleSearchKeyPress(e) {
+        if (e.key === 'Enter') {
+            this._handleSearchSubmit(e);
+        }
     }
 
     _handleSortChange(e) {
         this._sortOrder = e.target.value;
-        this._applyFilters();
-    }
-
-    _handleAutoRefreshToggle(e) {
-        this._autoRefresh = e.target.checked;
-        
-        if (this._autoRefresh) {
-            // Refresh every 30 seconds (as backup to SignalR)
-            this._refreshInterval = setInterval(() => {
-                this._loadActivityData();
-            }, 30000);
-        } else {
-            if (this._refreshInterval) {
-                clearInterval(this._refreshInterval);
-                this._refreshInterval = null;
-            }
-        }
+        this._loadActivityData(); // Reload from server with new sort order
     }
 
     _formatTimestamp(timestamp) {
@@ -358,8 +358,9 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
     }
 
     _getActivityCount(type) {
+        // Note: This now shows counts from current page only
         if (type === 'all') {
-            return this._activities.length;
+            return this._totalActivities;
         }
         return this._activities.filter(a => a.action === type).length;
     }
@@ -486,6 +487,35 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                 min-width: 300px;
             }
 
+            .search-wrapper {
+                display: flex;
+                gap: var(--uui-size-space-2);
+                align-items: flex-end;
+            }
+
+            .search-button {
+                background: var(--uui-color-interactive);
+                color: white;
+                border: none;
+                border-radius: var(--uui-border-radius);
+                padding: var(--uui-size-space-2) var(--uui-size-space-4);
+                font-size: var(--uui-type-default-size);
+                font-weight: 600;
+                cursor: pointer;
+                transition: background 0.2s ease;
+                white-space: nowrap;
+                height: 38px;
+            }
+
+            .search-button:hover {
+                background: var(--uui-color-interactive-emphasis);
+            }
+
+            .search-button:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
+
             .refresh-section {
                 margin-left: auto;
                 display: flex;
@@ -610,6 +640,9 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                 gap: var(--uui-size-space-4);
                 align-items: start;
                 transition: background 0.2s ease;
+                cursor: pointer;
+                text-decoration: none;
+                color: inherit;
             }
 
             .activity-item:last-child {
@@ -655,12 +688,6 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
             .activity-content-name {
                 font-weight: 700;
                 color: var(--uui-color-text);
-                text-decoration: none;
-                transition: color 0.2s ease;
-            }
-
-            .activity-content-name:hover {
-                color: var(--uui-color-interactive);
             }
 
             .activity-action {
@@ -757,6 +784,88 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                 margin-bottom: var(--uui-size-space-3);
             }
 
+            .pagination {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: var(--uui-size-space-4);
+                background: var(--uui-color-surface-alt);
+                border-top: 1px solid var(--uui-color-border);
+                flex-wrap: wrap;
+                gap: var(--uui-size-space-3);
+            }
+
+            .pagination-info {
+                font-size: var(--uui-type-small-size);
+                color: var(--uui-color-text-alt);
+            }
+
+            .pagination-controls {
+                display: flex;
+                align-items: center;
+                gap: var(--uui-size-space-2);
+            }
+
+            .pagination-button {
+                background: var(--uui-color-surface);
+                border: 1px solid var(--uui-color-border);
+                border-radius: var(--uui-border-radius);
+                padding: var(--uui-size-space-2) var(--uui-size-space-3);
+                font-size: var(--uui-type-small-size);
+                cursor: pointer;
+                transition: all 0.2s ease;
+                min-width: 36px;
+                height: 36px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .pagination-button:hover:not(:disabled) {
+                background: var(--uui-color-interactive-emphasis);
+                border-color: var(--uui-color-interactive);
+                color: var(--uui-color-interactive);
+            }
+
+            .pagination-button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+            .pagination-button.active {
+                background: var(--uui-color-interactive);
+                border-color: var(--uui-color-interactive);
+                color: white;
+                font-weight: 600;
+            }
+
+            .pagination-button.ellipsis {
+                border: none;
+                background: transparent;
+                cursor: default;
+            }
+
+            .pagination-button.ellipsis:hover {
+                background: transparent;
+                border: none;
+            }
+
+            .items-per-page {
+                display: flex;
+                align-items: center;
+                gap: var(--uui-size-space-2);
+                font-size: var(--uui-type-small-size);
+            }
+
+            .items-per-page select {
+                padding: var(--uui-size-space-2);
+                border: 1px solid var(--uui-color-border);
+                border-radius: var(--uui-border-radius);
+                background: var(--uui-color-surface);
+                color: var(--uui-color-text);
+                font-size: var(--uui-type-small-size);
+            }
+
             @media (max-width: 768px) {
                 .controls {
                     flex-direction: column;
@@ -772,6 +881,15 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                     min-width: 100%;
                 }
 
+                .search-wrapper {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+
+                .search-button {
+                    width: 100%;
+                }
+
                 .activity-item {
                     grid-template-columns: auto 1fr;
                     gap: var(--uui-size-space-3);
@@ -785,6 +903,20 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                 .signalr-indicator {
                     position: static;
                     margin-bottom: var(--uui-size-space-3);
+                }
+
+                .pagination {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+
+                .pagination-controls {
+                    justify-content: center;
+                    flex-wrap: wrap;
+                }
+
+                .pagination-info {
+                    text-align: center;
                 }
             }
         `,
@@ -862,13 +994,24 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
 
                     <div class="control-group">
                         <label for="search">Search</label>
-                        <input 
-                            type="text" 
-                            id="search" 
-                            placeholder="Search by content name, user, or type..." 
-                            @input=${this._handleSearchInput}
-                            .value=${this._searchQuery}
-                        />
+                        <div class="search-wrapper">
+                            <input 
+                                type="text" 
+                                id="search" 
+                                placeholder="Search by content name, user, or type..." 
+                                @input=${this._handleSearchInput}
+                                @keypress=${this._handleSearchKeyPress}
+                                .value=${this._searchQuery}
+                            />
+                            <button 
+                                class="search-button"
+                                @click=${this._handleSearchSubmit}
+                                ?disabled=${this._loading}
+                                title="Search"
+                            >
+                                🔍 Search
+                            </button>
+                        </div>
                     </div>
 
                     <div class="control-group">
@@ -886,26 +1029,24 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                     <div class="activity-header">
                         <h2>Recent Activity</h2>
                         <span class="activity-count">
-                            Showing ${this._filteredActivities.length} of ${this._totalActivities} activities
+                            Showing ${this._pagedActivities.length} of ${this._filteredActivities.length} activities
+                            ${this._filteredActivities.length !== this._totalActivities ? `(${this._totalActivities} total)` : ''}
                         </span>
                     </div>
 
-                    ${this._filteredActivities.length > 0 ? html`
-                        ${this._filteredActivities.map(activity => html`
-                            <div class="activity-item">
-                                <div class="activity-icon" style="color: ${activity.color}">
-                                    ${activity.icon}
-                                </div>
+                    ${this._pagedActivities.length > 0 ? html`
+                        ${this._pagedActivities.map(activity => html`
+                            <a 
+                                href="/umbraco/section/content/workspace/document/edit/${activity.contentId}" 
+                                class="activity-item"
+                            >
                                 <div class="activity-details">
                                     <div class="activity-title">
-                                        <a 
-                                            href="/umbraco#/content/content/edit/${activity.contentId}" 
-                                            class="activity-content-name"
-                                        >
+                                        <span class="activity-content-name">
                                             ${activity.contentName}
-                                        </a>
+                                        </span>
                                         <span class="activity-action ${activity.action}">
-                                            ${activity.actionLabel}F
+                                            ${activity.actionLabel}
                                         </span>
                                     </div>
                                     <div class="activity-meta">
@@ -934,7 +1075,7 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                                 <div class="activity-timestamp">
                                     ${this._formatTimestamp(activity.timestamp)}
                                 </div>
-                            </div>
+                            </a>
                         `)}
                     ` : html`
                         <div class="empty-state">
@@ -943,6 +1084,80 @@ export default class ContentActivityTrackerRealtime extends UmbElementMixin(LitE
                             <p>Try adjusting your search criteria.</p>
                         </div>
                     `}
+
+                    ${this._filteredActivities.length > 0 ? html`
+                        <div class="pagination">
+                            <div class="pagination-info">
+                                Page ${this._currentPage} of ${this._getTotalPages()}
+                                (${this._filteredActivities.length} activities)
+                            </div>
+
+                            <div class="pagination-controls">
+                                <button 
+                                    class="pagination-button"
+                                    @click=${() => this._handlePageChange(1)}
+                                    ?disabled=${this._currentPage === 1}
+                                    title="First Page"
+                                >
+                                    ⏮️
+                                </button>
+                                
+                                <button 
+                                    class="pagination-button"
+                                    @click=${() => this._handlePageChange(this._currentPage - 1)}
+                                    ?disabled=${this._currentPage === 1}
+                                    title="Previous Page"
+                                >
+                                    ◀️
+                                </button>
+
+                                ${this._getPageNumbers().map(pageNum => 
+                                    pageNum === '...' 
+                                        ? html`<span class="pagination-button ellipsis">...</span>`
+                                        : html`
+                                            <button 
+                                                class="pagination-button ${pageNum === this._currentPage ? 'active' : ''}"
+                                                @click=${() => this._handlePageChange(pageNum)}
+                                            >
+                                                ${pageNum}
+                                            </button>
+                                        `
+                                )}
+
+                                <button 
+                                    class="pagination-button"
+                                    @click=${() => this._handlePageChange(this._currentPage + 1)}
+                                    ?disabled=${this._currentPage === this._getTotalPages()}
+                                    title="Next Page"
+                                >
+                                    ▶️
+                                </button>
+                                
+                                <button 
+                                    class="pagination-button"
+                                    @click=${() => this._handlePageChange(this._getTotalPages())}
+                                    ?disabled=${this._currentPage === this._getTotalPages()}
+                                    title="Last Page"
+                                >
+                                    ⏭️
+                                </button>
+                            </div>
+
+                            <div class="items-per-page">
+                                <label for="items-per-page">Items per page:</label>
+                                <select 
+                                    id="items-per-page"
+                                    @change=${this._handleItemsPerPageChange}
+                                    .value=${this._itemsPerPage.toString()}
+                                >
+                                    <option value="10">10</option>
+                                    <option value="20">20</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
             </div>
         `;

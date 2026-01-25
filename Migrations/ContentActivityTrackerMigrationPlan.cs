@@ -7,7 +7,7 @@ using Umbraco.Cms.Infrastructure.Migrations;
 using Umbraco.Cms.Infrastructure.Migrations.Upgrade;
 using Umbraco.Cms.Infrastructure.Scoping;
 
-namespace TestProject.Migrations
+namespace UmbracoContentActivity.Migrations
 {
     /// <summary>
     /// Handles the migration plan for Content Activity Tracker

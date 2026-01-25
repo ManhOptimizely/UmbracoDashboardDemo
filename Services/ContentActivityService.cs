@@ -1,9 +1,9 @@
 using NPoco;
-using TestProject.Models;
+using UmbracoContentActivity.Models;
 using Umbraco.Cms.Infrastructure.Persistence;
 using Umbraco.Cms.Infrastructure.Scoping;
 
-namespace TestProject.Services
+namespace UmbracoContentActivity.Services
 {
     /// <summary>
     /// Service for managing content activity logs in the database
@@ -16,9 +16,14 @@ namespace TestProject.Services
         void LogActivity(ContentActivityLog activity);
 
         /// <summary>
-        /// Get recent activities with optional filtering
+        /// Get recent activities with server-side filtering, searching, sorting, and pagination
         /// </summary>
-        IEnumerable<ContentActivityLog> GetRecentActivities(int take = 50, string? action = null);
+        (IEnumerable<ContentActivityLog> activities, int totalCount) GetRecentActivities(
+            int take = 10, 
+            int skip = 0, 
+            string? action = null, 
+            string? search = null, 
+            string sortOrder = "newest");
 
         /// <summary>
         /// Get activities by content key
@@ -45,11 +50,13 @@ namespace TestProject.Services
     {
         private readonly IScopeProvider _scopeProvider;
         private readonly IActivityBroadcastService? _broadcastService;
-
+        private readonly ILogger<ContentActivityService> _logger;
         public ContentActivityService(
+            ILogger<ContentActivityService> logger,
             IScopeProvider scopeProvider,
             IActivityBroadcastService? broadcastService = null)
         {
+            _logger = logger;
             _scopeProvider = scopeProvider;
             _broadcastService = broadcastService;
         }
@@ -75,30 +82,67 @@ namespace TestProject.Services
                     catch (Exception)
                     {
                         // Log error but don't fail the operation
+                        _logger.LogError("Failed to broadcast activity");
                     }
                 });
             }
         }
 
-        public IEnumerable<ContentActivityLog> GetRecentActivities(int take = 50, string? action = null)
+        public (IEnumerable<ContentActivityLog> activities, int totalCount) GetRecentActivities(
+            int take = 10,
+            int skip = 0,
+            string? action = null,
+            string? search = null,
+            string sortOrder = "newest")
         {
             using var scope = _scopeProvider.CreateScope(autoComplete: true);
             var database = scope.Database;
 
+            // Build the base query for activities
             var sql = database.SqlContext.Sql()
                 .Select<ContentActivityLog>()
-                .From<ContentActivityLog>()
-                .OrderByDescending<ContentActivityLog>(x => x.Timestamp);
+                .From<ContentActivityLog>();
 
+            // Build count query
+            var countSql = database.SqlContext.Sql()
+                .Select("COUNT(*)")
+                .From<ContentActivityLog>();
+
+            // Apply action filter
             if (!string.IsNullOrWhiteSpace(action))
             {
                 sql = sql.Where<ContentActivityLog>(x => x.Action == action);
+                countSql = countSql.Where<ContentActivityLog>(x => x.Action == action);
             }
 
-            // Use Skip/Take for pagination
-            sql = sql.Append($"OFFSET 0 ROWS FETCH NEXT {take} ROWS ONLY");
+            // Apply search filter
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var searchTerm = $"%{search}%";
+                sql = sql.Where($"(ContentName LIKE @0 OR UserName LIKE @0 OR ContentTypeAlias LIKE @0)", searchTerm);
+                countSql = countSql.Where($"(ContentName LIKE @0 OR UserName LIKE @0 OR ContentTypeAlias LIKE @0)", searchTerm);
+            }
 
-            return database.Fetch<ContentActivityLog>(sql);
+            // Get total count
+            var totalCount = database.ExecuteScalar<int>(countSql);
+
+            // Apply sorting
+            if (sortOrder?.ToLower() == "oldest")
+            {
+                sql = sql.OrderBy<ContentActivityLog>(x => x.Timestamp);
+            }
+            else
+            {
+                sql = sql.OrderByDescending<ContentActivityLog>(x => x.Timestamp);
+            }
+
+            // Apply pagination
+            sql = sql.Append($"OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY");
+
+            var activities = database.Fetch<ContentActivityLog>(sql);
+            scope.Complete();
+
+            return (activities, totalCount);
         }
 
         public IEnumerable<ContentActivityLog> GetActivitiesByContent(Guid contentKey)
@@ -112,7 +156,9 @@ namespace TestProject.Services
                 .Where<ContentActivityLog>(x => x.ContentKey == contentKey)
                 .OrderByDescending<ContentActivityLog>(x => x.Timestamp);
 
-            return database.Fetch<ContentActivityLog>(sql);
+            var queryResults = database.Fetch<ContentActivityLog>(sql);
+            scope.Complete();
+            return queryResults;
         }
 
         public IEnumerable<ContentActivityLog> GetActivitiesByUser(Guid userKey)
@@ -126,7 +172,9 @@ namespace TestProject.Services
                 .Where<ContentActivityLog>(x => x.UserKey == userKey)
                 .OrderByDescending<ContentActivityLog>(x => x.Timestamp);
 
-            return database.Fetch<ContentActivityLog>(sql);
+            var queryResults = database.Fetch<ContentActivityLog>(sql);
+            scope.Complete();
+            return queryResults;
         }
 
         public ContentActivityStats GetStatistics(DateTime? since = null)
@@ -172,7 +220,7 @@ namespace TestProject.Services
                         break;
                 }
             }
-
+            scope.Complete();
             return stats;
         }
 

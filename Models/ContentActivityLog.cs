@@ -1,7 +1,7 @@
 using NPoco;
 using Umbraco.Cms.Infrastructure.Persistence.DatabaseAnnotations;
 
-namespace TestProject.Models
+namespace UmbracoContentActivity.Models
 {
     /// <summary>
     /// Database model for storing content activity events

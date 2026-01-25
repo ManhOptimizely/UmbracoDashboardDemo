@@ -26,7 +26,7 @@ app.UseUmbraco()
         u.UseWebsiteEndpoints();
         
         // Map SignalR hub
-        u.EndpointRouteBuilder.MapHub<TestProject.Hubs.ContentActivityHub>("/umbraco/signalr/content-activity");
+        u.EndpointRouteBuilder.MapHub<UmbracoContentActivity.Hubs.ContentActivityHub>("/umbraco/signalr/content-activity");
     });
 
 await app.RunAsync();

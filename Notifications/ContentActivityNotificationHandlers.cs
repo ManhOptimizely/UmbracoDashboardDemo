@@ -1,13 +1,11 @@
-using Microsoft.AspNetCore.Http;
 using System.Text.Json;
-using TestProject.Models;
-using TestProject.Services;
+using UmbracoContentActivity.Models;
+using UmbracoContentActivity.Services;
 using Umbraco.Cms.Core.Events;
 using Umbraco.Cms.Core.Notifications;
 using Umbraco.Cms.Core.Security;
-using Umbraco.Cms.Core.Services;
 
-namespace TestProject.Notifications
+namespace UmbracoContentActivity.Notifications
 {
     /// <summary>
     /// Notification handler for content saved events
@@ -53,10 +51,10 @@ namespace TestProject.Notifications
                     Metadata = JsonSerializer.Serialize(new
                     {
                         ContentId = content.Id,
-                        Level = content.Level,
-                        Path = content.Path,
-                        SortOrder = content.SortOrder,
-                        Template = content.TemplateId
+                        content.Level,
+                        content.Path,
+                        content.SortOrder,
+                        content.TemplateId
                     })
                 };
 
@@ -113,8 +111,8 @@ namespace TestProject.Notifications
                             Metadata = JsonSerializer.Serialize(new
                             {
                                 ContentId = content.Id,
-                                PublishDate = content.PublishDate,
-                                Level = content.Level
+                                content.PublishDate,
+                                content.Level
                             })
                         };
 
@@ -138,8 +136,8 @@ namespace TestProject.Notifications
                         Metadata = JsonSerializer.Serialize(new
                         {
                             ContentId = content.Id,
-                            PublishDate = content.PublishDate,
-                            Level = content.Level
+                            content.PublishDate,
+                            content.Level
                         })
                     };
 

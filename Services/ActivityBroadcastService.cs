@@ -1,8 +1,8 @@
 ﻿using Microsoft.AspNetCore.SignalR;
-using TestProject.Hubs;
-using TestProject.Models;
+using UmbracoContentActivity.Hubs;
+using UmbracoContentActivity.Models;
 
-namespace TestProject.Services
+namespace UmbracoContentActivity.Services
 {
     /// <summary>
     /// Service for broadcasting real-time activity updates via SignalR
@@ -13,11 +13,6 @@ namespace TestProject.Services
         /// Broadcast a new activity to all connected clients
         /// </summary>
         Task BroadcastActivityAsync(ContentActivityLog activity);
-
-        /// <summary>
-        /// Broadcast updated statistics to all connected clients
-        /// </summary>
-        Task BroadcastStatisticsAsync(ContentActivityStats statistics);
 
         /// <summary>
         /// Broadcast activity to a specific content room
@@ -49,16 +44,10 @@ namespace TestProject.Services
                 activity.Culture,
                 activity.IsTrashed,
                 activity.IpAddress,
-                Icon = GetIconForAction(activity.Action),
                 Color = GetColorForAction(activity.Action)
             };
 
             await _hubContext.Clients.All.SendAsync("ReceiveActivity", activityDto);
-        }
-
-        public async Task BroadcastStatisticsAsync(ContentActivityStats statistics)
-        {
-            await _hubContext.Clients.All.SendAsync("ReceiveStatistics", statistics);
         }
 
         public async Task BroadcastActivityToContentRoomAsync(Guid contentKey, ContentActivityLog activity)
@@ -74,25 +63,11 @@ namespace TestProject.Services
                 activity.Timestamp,
                 activity.Culture,
                 activity.IsTrashed,
-                Icon = GetIconForAction(activity.Action),
                 Color = GetColorForAction(activity.Action)
             };
 
             await _hubContext.Clients.Group($"content_{contentKey}")
                 .SendAsync("ReceiveActivity", activityDto);
-        }
-
-        private static string GetIconForAction(string action)
-        {
-            return action.ToLower() switch
-            {
-                "created" => "📄",
-                "published" => "✅",
-                "unpublished" => "❌",
-                "saved" => "💾",
-                "trashed" => "🗑️",
-                _ => "📝"
-            };
         }
 
         private static string GetColorForAction(string action)

@@ -1,9 +1,8 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
-using TestProject.Models;
+using UmbracoContentActivity.Models;
 using Umbraco.Cms.Web.Common.Authorization;
 
-namespace TestProject.Hubs
+namespace UmbracoContentActivity.Hubs
 {
     /// <summary>
     /// SignalR Hub for broadcasting real-time content activity updates
