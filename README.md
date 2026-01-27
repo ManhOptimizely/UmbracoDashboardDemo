@@ -23,7 +23,7 @@ The system uses the existing Umbraco local database configured in `appsettings.j
 ```json
 {
   "ConnectionStrings": {
-    "umbracoDbDSN": "Server=.;Database=UmbracoDb;Integrated Security=true;TrustServerCertificate=true"
+    "umbracoDbDSN": "Data Source=(localdb)\\MSSQLLocalDB;AttachDbFilename=|DataDirectory|\\Umbraco.mdf;Integrated Security=True"
   }
 }
 ```
@@ -32,7 +32,7 @@ The system uses the existing Umbraco local database configured in `appsettings.j
 
 **Prerequisites:**
 - .NET 10 SDK installed
-- Visual Studio 2022 (or VS Code)
+- Visual Studio
 - SQL Server LocalDB (included with Visual Studio) OR SQL Server Express
 
 **Steps:**
@@ -43,7 +43,7 @@ The system uses the existing Umbraco local database configured in `appsettings.j
    ```json
    {
      "ConnectionStrings": {
-       "umbracoDbDSN": "Server=(localdb)\\MSSQLLocalDB;Database=UmbracoContentTracker;Integrated Security=true;TrustServerCertificate=true"
+       "umbracoDbDSN": "Data Source=(localdb)\\MSSQLLocalDB;AttachDbFilename=|DataDirectory|\\Umbraco.mdf;Integrated Security=True"
      }
    }
    ```
@@ -56,80 +56,68 @@ The system uses the existing Umbraco local database configured in `appsettings.j
 
    Or press **F5** in Visual Studio.
 
-4. **Complete Umbraco installation**:
-   - Navigate to `https://localhost:[PORT]/umbraco`
-   - Complete the installation wizard
-   - Create an admin account
+4. **Dashboard view**:
+   - Navigate to `https://localhost:44338/umbraco`
+   - Complete the installation wizard (first run))
+   - Login to the backoffice
    - The database and ContentActivityLog table will be created automatically
 
-### Database Maintenance
+### Cleanup Old Activities
 
-#### Cleanup Old Activities
-
-The system scheduled a cleanup job to delete old activities:
-
-```csharp
-// Delete activities older than 90 days
-var deleted = _contentActivityService.DeleteOldActivities(daysToKeep: 90);
+The system schedules a cleanup job to delete old activities. All you need is to configure the retention period, job execution interval, and other settings as needed.
+The config section must under "Umbraco:CMS" path.
+- EnableCleanupJob: Enable or disable the cleanup job. Useful for multi-instance systems.
+- DaysToKeep: Number of days to retain activities (default: 30)
+- PeriodInDays: How often to run the cleanup job (in days)
+- DelayInMinutes: Delay before the first run (in minutes)
+- DelayInSeconds: Delay before the first run (in seconds) - recommended for testing/local development
+**Configuration Example in `appsettings.json`:**
+```json
+{
+  "Umbraco": {
+    "CMS": {
+      "ContentActivity": {
+        "DaysToKeep": 30,
+        "PeriodInDays": 1,
+        "DelayInMinutes": 5,
+        "EnableCleanupJob": true
+      }
+    }
+  } 
+}
 ```
 
-### API Endpoints for Database Access
+### API Endpoints
 
 The following API endpoints retrieve data from the database:
 
-- `GET /umbraco/management/api/v1/content-activity` - Get recent activities
-- `GET /umbraco/management/api/v1/content-activity/by-content/{contentKey}` - Activities by content
-- `GET /umbraco/management/api/v1/content-activity/by-user/{userKey}` - Activities by user
-- `GET /umbraco/management/api/v1/content-activity/statistics` - Activity statistics
+- `GET /umbraco/management/api/v1/content-activity?{params}` - Get recent activities with optional filtering and pagination.
 
 **Example:**
 ```bash
-curl -X GET "https://localhost:44342/umbraco/management/api/v1/content-activity?take=10&action=Published" \
-  -H "Authorization: Bearer YOUR_TOKEN"
+curl -X GET "https://localhost:44342/umbraco/management/api/v1/content-activity?skip=0&take=10&action=Published" \
+  -H "Authorization: Bearer YOUR_UMBRACO_AUTH_TOKEN"
 ```
-
-### Troubleshooting Performance issues
-
-**Problem**: Performance issues with large activity tables
-- **Solution**:
-  - Run cleanup to delete old activities
-  - Add additional indexes if needed
-  - Consider partitioning for very large tables (100k+ rows)
-
-## Features
-
-### 🕒 Activity Monitoring
-- **Real-time tracking** of content changes including:
-  - Content creation
-  - Content publishing
-  - Content saves/updates
-  - Content unpublishing
-- **User information** showing who performed each action
-- **Timestamp tracking** with human-readable relative time (e.g., "5 minutes ago")
-
-### 📊 Statistics Dashboard
-- Quick overview cards showing:
-  - Total activities count
-  - Number of created items
-  - Number of published items
-  - Number of saved items
-- Interactive stat cards that highlight when filtered
 
 ### 🔍 Advanced Filtering & Search
 - **Filter by action type**: All, Created, Published, Saved, Unpublished
 - **Search functionality**: Search by content name, user name, or content type
 - **Sort options**: Newest first or oldest first
-- **Real-time updates**: Results update instantly as you type
 
 ### 🔒 Security
 - **Authentication required**: Only authenticated backoffice users can view
-- Validates user authentication on load
 - Error handling for unauthorized access
 
-### 🔍 Filtering Activities
-- Use the **Filter by Action** dropdown to show specific types of activities
-- Use the **Search** box to find specific content, users, or content types
-- Use the **Sort Order** dropdown to change the order of results
+### Build Nuget Package
+**This project includes a PowerShell script to create a NuGet package for distribution.
+- Run the following shell command in the "Scripts" directory:
+  ```
+  powershell .\pack-nuget.ps1 -OutputPath "YOUR_OUTPUT_PATH"
+  ```
+
+### TODO list
+- [ ] Add unit tests for API controllers and services (I'm facing a conflict with .NET version between Umbraco 17 vs Unit test framework)
+- [ ] Use Procedures, caching for activity operations
 
 ## License
 
