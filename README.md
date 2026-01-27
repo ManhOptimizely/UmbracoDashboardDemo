@@ -2,11 +2,10 @@
 
 A custom backoffice dashboard for Umbraco 17 CMS that displays recent content activity and allows administrators to monitor content changes across the system.
 
-## Database Setup
-
 ### Overview
 The Content Activity Tracker uses a database table to persistently store all content activity events. This provides a complete audit trail and enables historical reporting.
 
+## Database Setup
 ### Automatic Database Setup
 The database table is created automatically in the first run the application using Umbraco's migration system. No manual database setup is required!
 
@@ -33,7 +32,7 @@ The system uses the existing Umbraco local database configured in `appsettings.j
 **Prerequisites:**
 - .NET 10 SDK installed
 - Visual Studio
-- SQL Server LocalDB (included with Visual Studio) OR SQL Server Express
+- Umbraco CMS database connection configured
 
 **Steps:**
 
@@ -58,19 +57,21 @@ The system uses the existing Umbraco local database configured in `appsettings.j
 
 4. **Dashboard view**:
    - Navigate to `https://localhost:44338/umbraco`
-   - Complete the installation wizard (first run))
+   - Complete the installation wizard (if first run)
    - Login to the backoffice
-   - The database and ContentActivityLog table will be created automatically
+   - Navigate to the "Content Activity" dashboard.
 
 ### Cleanup Old Activities
 
 The system schedules a cleanup job to delete old activities. All you need is to configure the retention period, job execution interval, and other settings as needed.
 The config section must under "Umbraco:CMS" path.
-- EnableCleanupJob: Enable or disable the cleanup job. Useful for multi-instance systems.
-- DaysToKeep: Number of days to retain activities (default: 30)
+- EnableCleanupJob: Enable or disable the cleanup job. Useful for multi-instances systems.
+- DaysToKeep: Number of days to retain activities (default: last 90 days)
+- DelayInMinutes: Delay before the first execution of the cleanup job (in minutes - default: 5)
 - PeriodInDays: How often to run the cleanup job (in days)
-- DelayInMinutes: Delay before the first run (in minutes)
-- DelayInSeconds: Delay before the first run (in seconds) - recommended for testing/local development
+- PeriodInHours: How often to run the cleanup job (in hours)
+- PeriodInMinutes: How often to run the cleanup job (in minutes)
+- PeriodInSeconds: How often to run the cleanup job (in seconds) - recommended for testing/local development
 **Configuration Example in `appsettings.json`:**
 ```json
 {
@@ -87,24 +88,26 @@ The config section must under "Umbraco:CMS" path.
 }
 ```
 
-### API Endpoints
+### API Endpoints (Umbraco Management API)
 
 The following API endpoints retrieve data from the database:
 
 - `GET /umbraco/management/api/v1/content-activity?{params}` - Get recent activities with optional filtering and pagination.
+- Verify the API endpoint in Swagger UI at `https://localhost:44338/umbraco/swagger/index.html?urls.primaryName=Umbraco+Management+API`
+Then filter for "My custom Backoffice API" tag.
 
 **Example:**
 ```bash
-curl -X GET "https://localhost:44342/umbraco/management/api/v1/content-activity?skip=0&take=10&action=Published" \
+curl -X GET "https://localhost:44338/umbraco/management/api/v1/content-activity?skip=0&take=10&action=Published" \
   -H "Authorization: Bearer YOUR_UMBRACO_AUTH_TOKEN"
 ```
-
-### 🔍 Advanced Filtering & Search
+### Dashboard features & security
+#### 🔍 Advanced Filtering & Search
 - **Filter by action type**: All, Created, Published, Saved, Unpublished
 - **Search functionality**: Search by content name, user name, or content type
 - **Sort options**: Newest first or oldest first
 
-### 🔒 Security
+#### 🔒 Security
 - **Authentication required**: Only authenticated backoffice users can view
 - Error handling for unauthorized access
 
@@ -115,6 +118,24 @@ curl -X GET "https://localhost:44342/umbraco/management/api/v1/content-activity?
   powershell .\pack-nuget.ps1 -OutputPath "YOUR_OUTPUT_PATH"
   ```
 
+### Import this package into your Umbraco project:
+1. Install the NuGet package.
+2. Register the SignalR hub endpoint in `Startup.cs` for the Dashboard using `MapContentActivityHub()` extension method.
+```c#
+using UmbracoContentActivity.Extensions;
+builder.CreateUmbracoBuilder()
+    .AddBackOffice()
+    .AddWebsite()
+    .AddComposers() <-- This will register the necessary services and components for Content Activity Tracker
+    .Build();
+
+app.UseUmbraco()
+    .WithMiddleware(/*Register your middleware*/)
+    .WithEndpoints(endpoints =>
+        // Register the SignalR hub endpoint for Content Activity Dashboard
+        endpoints.MapContentActivityHub();
+    );
+```
 ### TODO list
 - [ ] Add unit tests for API controllers and services (I'm facing a conflict with .NET version between Umbraco 17 vs Unit test framework)
 - [ ] Use Procedures, caching for activity operations

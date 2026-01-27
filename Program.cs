@@ -1,7 +1,6 @@
-WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+using UmbracoContentActivity.Extensions;
 
-// Add SignalR
-builder.Services.AddSignalR();
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.CreateUmbracoBuilder()
     .AddBackOffice()
@@ -24,9 +23,9 @@ app.UseUmbraco()
     {
         u.UseBackOfficeEndpoints();
         u.UseWebsiteEndpoints();
-        
+
         // Map SignalR hub
-        u.EndpointRouteBuilder.MapHub<UmbracoContentActivity.Hubs.ContentActivityHub>("/umbraco/signalr/content-activity");
+        u.MapContentActivityHub();
     });
 
 await app.RunAsync();

@@ -2,9 +2,8 @@ using UmbracoContentActivity.Jobs;
 using UmbracoContentActivity.Notifications;
 using UmbracoContentActivity.Services;
 using Umbraco.Cms.Core.Composing;
-using Umbraco.Cms.Core.DependencyInjection;
 using Umbraco.Cms.Core.Notifications;
-using Umbraco.Cms.Infrastructure.BackgroundJobs;
+using UmbracoContentActivity.Extensions;
 
 namespace UmbracoContentActivity.Composers
 {
@@ -15,10 +14,13 @@ namespace UmbracoContentActivity.Composers
     {
         public void Compose(IUmbracoBuilder builder)
         {
-            // Register configuration options for Content Activity Tracker
+            // Register configuration options for Content Activity job
             builder.Services.AddOptions<ContentActivityOptions>()
                 .Bind(builder.Config.GetSection(ContentActivityOptions.SectionName))
                 .ValidateDataAnnotations();
+
+            // Register SignalR hub
+            builder.Services.AddSignalR();
 
             // Register the broadcast service for SignalR
             builder.Services.AddSingleton<IActivityBroadcastService, ActivityBroadcastService>();
