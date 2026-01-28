@@ -1,4 +1,4 @@
-﻿# Content Activity Tracker Dashboard
+﻿# Content Activity Tracker Dashboard 
 
 A custom backoffice dashboard for Umbraco 17 CMS that displays recent content activity and allows administrators to monitor content changes across the system.
 
@@ -103,16 +103,16 @@ curl -X GET "https://localhost:44338/umbraco/management/api/v1/content-activity?
 ```
 ### Dashboard features & security
 #### 🔍 Advanced Filtering & Search
-- **Filter by action type**: All, Created, Published, Saved, Unpublished
-- **Search functionality**: Search by content name, user name, or content type
-- **Sort options**: Newest first or oldest first
+- Filter by action type: All, Created, Published, Saved, Unpublished
+- Search functionality: Search by content name, user name, or content type
+- Sort options: Newest first or oldest first
 
 #### 🔒 Security
-- **Authentication required**: Only authenticated backoffice users can view
+- Authentication required: Only authenticated backoffice users can view
 - Error handling for unauthorized access
 
 ### Build Nuget Package
-**This project includes a PowerShell script to create a NuGet package for distribution.
+####This project includes a PowerShell script to create a NuGet package for distribution.
 - Run the following shell command in the "Scripts" directory:
   ```
   powershell .\pack-nuget.ps1 -OutputPath "YOUR_OUTPUT_PATH"

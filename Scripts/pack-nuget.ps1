@@ -35,7 +35,8 @@ param(
 # Script variables
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectFile = Join-Path (Split-Path -Parent $ScriptDir) "UmbracoContentActivity.csproj"
+$SolutionRoot = Split-Path -Parent $ScriptDir
+$ProjectFile = Join-Path $SolutionRoot "UmbracoContentActivity\UmbracoContentActivity.csproj"
 $PackageId = "UmbracoContentActivity"
 $Authors = "Manv"
 $Description = "Content Activity Tracker Dashboard for Umbraco 17 CMS."
